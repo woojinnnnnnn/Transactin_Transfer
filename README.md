@@ -57,3 +57,13 @@ estimates come from CoinGecko — all called client-side, no backend required.
 This is an MVP: it fetches only the first page of activity per chain (no
 pagination yet), so very active wallets may not see their full history under
 "All".
+
+## Disclaimer
+
+The author is not a blockchain expert. This project was built with
+[Claude Code](https://claude.com/claude-code), verified by reading
+official docs (Blockscout, GoPlus, CoinGecko, wagmi/viem) and by trial-and-error
+testing against real wallets/testnets — not from deep prior domain expertise.
+Risk classifications, USD estimates, and chain/API assumptions may be wrong or
+incomplete. Don't rely on this tool alone for anything security- or
+money-critical; always verify on a block explorer.

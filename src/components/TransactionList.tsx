@@ -1,5 +1,6 @@
 import type { Chain } from 'viem';
 import type { NormalizedTransaction } from '../types/activity';
+import { SkeletonCard } from './SkeletonCard';
 import { TransactionCard } from './TransactionCard';
 
 export function TransactionList({
@@ -29,9 +30,11 @@ export function TransactionList({
 }) {
   return (
     <section className="transaction-list" aria-label="recent transactions">
-      {isFetching && (
-        <div className="empty-state">Loading recent transaction history.</div>
-      )}
+      {isFetching &&
+        Array.from({ length: 5 }, (_, i) => (
+          <SkeletonCard key={i} delay={i * 90} />
+        ))
+      }
       {!isFetching && isConnected && transactions.length === 0 && (
         <div className="empty-state">
           No recent movement history found for this wallet.

@@ -13,6 +13,8 @@ export type NormalizedTransaction = {
   summary: string;
   timestamp: string;
   tokenContractAddress?: string;
+  spenderAddress?: string;
+  amountUsd?: string;
   movements?: TransactionMovement[];
 };
 
@@ -31,4 +33,4 @@ export type TransactionMovement = {
   toAddress: string;
 };
 
-export type ActivityRange = 'latest' | '7d' | '30d';
+export type ActivityRange = 'latest' | '7d' | '30d' | 'all';

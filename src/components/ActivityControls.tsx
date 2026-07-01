@@ -1,8 +1,10 @@
+import { useEffect, useRef, useState } from 'react';
 import type { Chain } from 'viem';
 import { activityRanges } from '../constants/activityRanges';
 import {
   getChainSymbol,
-  supportedChains,
+  mainnetChains,
+  testnetChains,
   type SupportedChainId,
 } from '../constants/chains';
 import type { ActivityRange } from '../types/activity';
@@ -22,23 +24,67 @@ export function ActivityControls({
   onRangeChange: (range: ActivityRange) => void;
   onSwitchChain: (chainId: SupportedChainId) => void;
 }) {
+  const isOnTestnet = testnetChains.some((c) => c.id === activeChain?.id);
+  const [showTestnet, setShowTestnet] = useState(false);
+  const displayTestnet = showTestnet || isOnTestnet;
+
+  // Sticky elevation — becomes true when the switcher is pinned at top
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const [isStuck, setIsStuck] = useState(false);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsStuck(!entry.isIntersecting),
+      { threshold: 0, rootMargin: '-1px 0px 0px 0px' },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <section className="chain-switcher" aria-label="chain switcher">
+    <>
+    <div ref={sentinelRef} className="chain-switcher-sentinel" aria-hidden="true" />
+    <section className={`chain-switcher${isStuck ? ' chain-switcher-stuck' : ''}`} aria-label="chain switcher">
       <div className="switcher-group">
         <span>Network</span>
         <div className="switcher-options">
-          {supportedChains.map((supportedChain) => (
+          {mainnetChains.map((chain) => (
             <button
-              className={activeChain?.id === supportedChain.id ? 'chain-option chain-option-active' : 'chain-option'}
+              className={activeChain?.id === chain.id ? 'chain-option chain-option-active' : 'chain-option'}
               type="button"
-              key={supportedChain.id}
-              onClick={() => onSwitchChain(supportedChain.id)}
+              key={chain.id}
+              onClick={() => onSwitchChain(chain.id)}
               disabled={!isConnected || isSwitchingChain}
             >
-              <span>{supportedChain.name}</span>
-              <small>{getChainSymbol(supportedChain.id)}</small>
+              <span>{chain.name}</span>
+              <small>{getChainSymbol(chain.id)}</small>
             </button>
           ))}
+          <div className="testnet-divider" />
+          <button
+            className={displayTestnet ? 'chain-option testnet-toggle testnet-toggle-active' : 'chain-option testnet-toggle'}
+            type="button"
+            onClick={() => setShowTestnet((v) => !v)}
+            disabled={!isConnected || isSwitchingChain || isOnTestnet}
+            title={isOnTestnet ? 'Connected to a testnet — testnet chains stay visible' : undefined}
+          >
+            Testnet
+          </button>
+          {displayTestnet &&
+            testnetChains.map((chain) => (
+              <button
+                className={activeChain?.id === chain.id ? 'chain-option chain-option-active' : 'chain-option'}
+                type="button"
+                key={chain.id}
+                onClick={() => onSwitchChain(chain.id)}
+                disabled={!isConnected || isSwitchingChain}
+              >
+                <span>{chain.name}</span>
+                <small>{getChainSymbol(chain.id)}</small>
+              </button>
+            ))}
         </div>
       </div>
       <div className="switcher-group range-group">
@@ -50,6 +96,7 @@ export function ActivityControls({
               key={range.value}
               type="button"
               onClick={() => onRangeChange(range.value)}
+              title={range.hint}
             >
               {range.label}
             </button>
@@ -57,5 +104,6 @@ export function ActivityControls({
         </div>
       </div>
     </section>
+    </>
   );
 }

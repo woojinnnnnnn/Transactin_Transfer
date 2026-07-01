@@ -1,4 +1,5 @@
 import type { Chain } from 'viem';
+import type { Theme } from '../hooks/useTheme';
 
 export function WalletHeader({
   activeChainSymbol,
@@ -9,6 +10,9 @@ export function WalletHeader({
   isConnecting,
   onConnect,
   onDisconnect,
+  onOpenRiskGuide,
+  onToggleTheme,
+  theme,
 }: {
   activeChainSymbol?: string;
   chain?: Chain;
@@ -18,6 +22,9 @@ export function WalletHeader({
   isConnecting: boolean;
   onConnect: () => void;
   onDisconnect: () => void;
+  onOpenRiskGuide: () => void;
+  onToggleTheme: () => void;
+  theme: Theme;
 }) {
   return (
     <section className="toolbar" aria-label="wallet controls">
@@ -30,6 +37,25 @@ export function WalletHeader({
         </p>
       </div>
       <div className="wallet-actions">
+        <button
+          className="risk-guide-trigger"
+          type="button"
+          onClick={onOpenRiskGuide}
+          aria-label="How risk levels are decided"
+          title="How risk levels are decided"
+        >
+          ?
+        </button>
+        <button
+          className="theme-toggle-button"
+          type="button"
+          onClick={onToggleTheme}
+          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          <span className="theme-icon" key={theme}>
+            {theme === 'dark' ? '☀' : '☽'}
+          </span>
+        </button>
         <button
           className="connect-button"
           type="button"

@@ -15,7 +15,7 @@ export function SummaryStrip({
       </div>
       <div>
         <span>Supported networks</span>
-        <strong>Ethereum, Sepolia, Polygon(Test), Amoy(not api key init yet..)</strong>
+        <strong>Ethereum, Sepolia, Base, Arbitrum One (ETH)</strong>
       </div>
       <div>
         <span>Status</span>

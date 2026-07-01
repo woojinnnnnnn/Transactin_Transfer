@@ -1,5 +1,10 @@
 import type { NormalizedTransaction } from '../types/activity';
 
+function daysAgo(days: number, hourOffset = 0): string {
+  const d = new Date(Date.now() - days * 24 * 60 * 60 * 1000 + hourOffset * 60 * 60 * 1000);
+  return d.toISOString().replace('T', 'T').replace(/\.\d{3}Z$/, '.000000Z');
+}
+
 export const sampleTransactions: NormalizedTransaction[] = [
   {
     id: '0x8a91',
@@ -12,7 +17,41 @@ export const sampleTransactions: NormalizedTransaction[] = [
     amount: '0.084',
     risk: { level: 'low', reason: 'Standard outgoing transfer.' },
     summary: 'ETH left your wallet.',
-    timestamp: '2026-06-11T05:22:00.000000Z',
+    timestamp: daysAgo(1, 5),
+    amountUsd: '$297.00',
+  },
+  {
+    id: '0xd4f2',
+    type: 'approval',
+    from: 'My wallet',
+    fromAddress: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
+    to: 'Unknown address 0xDead...C0De',
+    toAddress: '0xDeadDeadDeadDeadDeadDeadDeadDeadDeadC0De',
+    asset: 'Token access',
+    amount: 'Unlimited approval',
+    risk: {
+      level: 'high',
+      reason: 'Unlimited spending approval — spender can drain your entire token balance.',
+    },
+    summary: 'You granted unlimited token spending access. The spender can take your full balance.',
+    timestamp: daysAgo(1, 3),
+  },
+  {
+    id: '0xb3c1',
+    type: 'received',
+    from: '0xBad...F00D',
+    fromAddress: '0xBadf00dBadf00dBadf00dBadf00dBadf00dBadF',
+    to: 'My wallet',
+    toAddress: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
+    asset: 'SCAM',
+    amount: '10000',
+    risk: {
+      level: 'high',
+      reason: 'Honeypot detected — selling this token may be impossible.',
+    },
+    summary: 'SCAM arrived in your wallet.',
+    timestamp: daysAgo(2, 18),
+    amountUsd: '$0.00',
   },
   {
     id: '0x391b',
@@ -23,9 +62,9 @@ export const sampleTransactions: NormalizedTransaction[] = [
     toAddress: '0xe592427a0aece92de3edee1f18e0157c05861564',
     asset: 'USDC',
     amount: 'Spending approval',
-    risk: { level: 'medium', reason: 'Token spending approval.' },
-    summary: 'You allowed this app to spend USDC from your wallet.',
-    timestamp: '2026-06-10T12:04:00.000000Z',
+    risk: { level: 'medium', reason: 'Token spending approvals should be reviewed.' },
+    summary: 'You allowed another address to spend tokens from your wallet.',
+    timestamp: daysAgo(3, 12),
   },
   {
     id: '0xa118',
@@ -38,7 +77,7 @@ export const sampleTransactions: NormalizedTransaction[] = [
     amount: '120.00 -> 0.031',
     risk: { level: 'low', reason: 'Token swap with both outgoing and incoming assets.' },
     summary: 'USDC left your wallet and WETH came in.',
-    timestamp: '2026-06-09T01:16:00.000000Z',
+    timestamp: daysAgo(5, 1),
   },
   {
     id: '0x77df',
@@ -51,6 +90,7 @@ export const sampleTransactions: NormalizedTransaction[] = [
     amount: '18.4',
     risk: { level: 'low', reason: 'Standard incoming transfer.' },
     summary: 'MATIC arrived in your wallet.',
-    timestamp: '2026-06-08T09:48:00.000000Z',
+    timestamp: daysAgo(6, 9),
+    amountUsd: '$9.57',
   },
 ];

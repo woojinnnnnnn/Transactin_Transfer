@@ -15,6 +15,10 @@ function filterTransactions(
     return transactions.slice(0, 12);
   }
 
+  if (range === 'all') {
+    return transactions;
+  }
+
   const days = range === '7d' ? 7 : 30;
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
 

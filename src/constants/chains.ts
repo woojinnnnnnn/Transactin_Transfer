@@ -1,39 +1,26 @@
-import { mainnet, polygon, polygonAmoy, sepolia } from 'wagmi/chains';
+import { arbitrum, base, mainnet, sepolia } from 'wagmi/chains';
 
-export const supportedChains = [mainnet, sepolia, polygon, polygonAmoy];
+export const mainnetChains = [mainnet, base, arbitrum];
+export const testnetChains = [sepolia];
+export const supportedChains = [...mainnetChains, ...testnetChains];
 export type SupportedChainId = (typeof supportedChains)[number]['id'];
 
 export const chainSymbols: Record<number, string> = {
   [mainnet.id]: 'ETH',
+  [base.id]: 'ETH',
+  [arbitrum.id]: 'ETH',
   [sepolia.id]: 'ETH',
-  [polygon.id]: 'POL',
-  [polygonAmoy.id]: 'POL',
 };
 
 export function getChainSymbol(chainId: number | undefined) {
-  if (!chainId) {
-    return undefined;
-  }
-
+  if (!chainId) return undefined;
   return chainSymbols[chainId];
 }
 
 export function getExplorerTransactionUrl(chainId: number | undefined, hash: string) {
-  if (chainId === mainnet.id) {
-    return `https://etherscan.io/tx/${hash}`;
-  }
-
-  if (chainId === sepolia.id) {
-    return `https://sepolia.etherscan.io/tx/${hash}`;
-  }
-
-  if (chainId === polygon.id) {
-    return `https://polygonscan.com/tx/${hash}`;
-  }
-
-  if (chainId === polygonAmoy.id) {
-    return `https://amoy.polygonscan.com/tx/${hash}`;
-  }
-
+  if (chainId === mainnet.id) return `https://etherscan.io/tx/${hash}`;
+  if (chainId === base.id) return `https://basescan.org/tx/${hash}`;
+  if (chainId === arbitrum.id) return `https://arbiscan.io/tx/${hash}`;
+  if (chainId === sepolia.id) return `https://sepolia.etherscan.io/tx/${hash}`;
   return undefined;
 }

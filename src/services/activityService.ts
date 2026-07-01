@@ -1,12 +1,18 @@
 import { formatEther, formatUnits } from 'viem';
 import { knownAddresses } from '../constants/knownAddresses';
-import { fetchTokenSecurity, type TokenSecurityFlags } from './goplusService';
+import {
+  fetchAddressSecurity,
+  fetchTokenSecurity,
+  type AddressSecurityFlags,
+  type TokenSecurityFlags,
+} from './goplusService';
+import { fetchUsdPrices, formatUsd } from './priceService';
 import type {
   NormalizedTransaction,
   TransactionMovement,
   TransactionRisk,
 } from '../types/activity';
-import { shortenAddress, timestampFromSeconds, trimAmount } from '../utils/format';
+import { shortenAddress, trimAmount } from '../utils/format';
 
 type BlockscoutAddress = {
   ens_domain_name?: string | null;
@@ -56,31 +62,26 @@ type BlockscoutListResponse<T> = {
 };
 
 type ChainActivityConfig = {
-  provider: 'blockscout' | 'etherscan';
   apiBaseUrl: string;
   nativeSymbol: string;
 };
 
 const chainActivityConfig: Record<number, ChainActivityConfig> = {
   1: {
-    provider: 'blockscout',
     apiBaseUrl: 'https://eth.blockscout.com/api/v2',
     nativeSymbol: 'ETH',
   },
+  8453: {
+    apiBaseUrl: 'https://base.blockscout.com/api/v2',
+    nativeSymbol: 'ETH',
+  },
+  42161: {
+    apiBaseUrl: 'https://arbitrum.blockscout.com/api/v2',
+    nativeSymbol: 'ETH',
+  },
   11155111: {
-    provider: 'blockscout',
     apiBaseUrl: 'https://eth-sepolia.blockscout.com/api/v2',
     nativeSymbol: 'Sepolia ETH',
-  },
-  137: {
-    provider: 'blockscout',
-    apiBaseUrl: 'https://polygon.blockscout.com/api/v2',
-    nativeSymbol: 'POL',
-  },
-  80002: {
-    provider: 'etherscan',
-    apiBaseUrl: 'https://api.etherscan.io/v2/api',
-    nativeSymbol: 'POL',
   },
 };
 
@@ -98,10 +99,6 @@ export async function fetchAddressActivity(address: string, chainId: number) {
 
   if (!chainConfig) {
     throw new Error('Transaction history is not supported on this network yet.');
-  }
-
-  if (chainConfig.provider === 'etherscan') {
-    return fetchEtherscanAddressActivity(address, chainId, chainConfig);
   }
 
   const encodedAddress = encodeURIComponent(address);
@@ -133,227 +130,15 @@ export async function fetchAddressActivity(address: string, chainId: number) {
     ...normalizedNativeTransfers,
   ]).sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
 
-  const securityMap = await fetchTokenSecurity(chainId, collectTokenAddresses(sorted));
-  return applyTokenSecurity(sorted, securityMap);
-}
-
-type EtherscanListResponse<T> = {
-  status: string;
-  message: string;
-  result: T[] | string;
-};
-
-type EtherscanTransaction = {
-  hash: string;
-  timeStamp: string;
-  from: string;
-  to: string;
-  value: string;
-  functionName?: string;
-  input?: string;
-  methodId?: string;
-};
-
-type EtherscanTokenTransfer = {
-  hash: string;
-  timeStamp: string;
-  from: string;
-  to: string;
-  tokenDecimal: string;
-  tokenSymbol: string;
-  value: string;
-  contractAddress?: string;
-};
-
-async function fetchEtherscanAddressActivity(
-  address: string,
-  chainId: number,
-  chainConfig: ChainActivityConfig,
-) {
-  const apiKey = import.meta.env.VITE_ETHERSCAN_API_KEY;
-
-  if (!apiKey) {
-    throw new Error(
-      'Polygon Amoy history requires VITE_ETHERSCAN_API_KEY in your .env file.',
-    );
-  }
-
-  const [tokenTransfers, transactions] = await Promise.all([
-    fetchEtherscanList<EtherscanTokenTransfer>(
-      chainConfig.apiBaseUrl,
-      chainId,
-      address,
-      apiKey,
-      'tokentx',
-    ),
-    fetchEtherscanList<EtherscanTransaction>(
-      chainConfig.apiBaseUrl,
-      chainId,
-      address,
-      apiKey,
-      'txlist',
-    ),
+  const [securityMap, priceMap, addressSecurityMap] = await Promise.all([
+    fetchTokenSecurity(chainId, collectTokenAddresses(sorted)),
+    fetchUsdPrices(chainId, sorted),
+    fetchAddressSecurity(collectSpenderAddresses(sorted)),
   ]);
-
-  const normalizedTokenTransfers = tokenTransfers
-    .map((transfer) => normalizeEtherscanTokenTransfer(transfer, address))
-    .filter((transaction): transaction is NormalizedTransaction => Boolean(transaction));
-
-  const normalizedNativeTransfers = transactions
-    .map((transaction) =>
-      normalizeEtherscanNativeTransaction(
-        transaction,
-        address,
-        chainConfig.nativeSymbol,
-      ),
-    )
-    .filter((transaction): transaction is NormalizedTransaction => Boolean(transaction));
-  const normalizedApprovals = transactions
-    .map((transaction) => normalizeEtherscanApproval(transaction, address))
-    .filter((transaction): transaction is NormalizedTransaction => Boolean(transaction));
-
-  const sorted = groupTransactions([
-    ...normalizedApprovals,
-    ...normalizedTokenTransfers,
-    ...normalizedNativeTransfers,
-  ]).sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
-
-  const securityMap = await fetchTokenSecurity(chainId, collectTokenAddresses(sorted));
-  return applyTokenSecurity(sorted, securityMap);
-}
-
-async function fetchEtherscanList<T>(
-  apiBaseUrl: string,
-  chainId: number,
-  address: string,
-  apiKey: string,
-  action: 'tokentx' | 'txlist',
-) {
-  const params = new URLSearchParams({
-    chainid: String(chainId),
-    module: 'account',
-    action,
-    address,
-    page: '1',
-    offset: '50',
-    sort: 'desc',
-    apikey: apiKey,
-  });
-  const response = await fetch(`${apiBaseUrl}?${params.toString()}`);
-
-  if (!response.ok) {
-    throw new Error('Could not load transaction history.');
-  }
-
-  const data = (await response.json()) as EtherscanListResponse<T>;
-
-  if (data.status === '0') {
-    if (data.message === 'No transactions found') {
-      return [];
-    }
-
-    throw new Error(
-      typeof data.result === 'string' ? data.result : 'Could not load transaction history.',
-    );
-  }
-
-  return Array.isArray(data.result) ? data.result : [];
-}
-
-function normalizeEtherscanTokenTransfer(
-  transfer: EtherscanTokenTransfer,
-  ownerAddress: string,
-): NormalizedTransaction | undefined {
-  const direction = getDirection(transfer.from, transfer.to, ownerAddress);
-
-  if (!direction) {
-    return undefined;
-  }
-
-  const symbol = transfer.tokenSymbol || 'TOKEN';
-
-  return {
-    id: transfer.hash,
-    type: direction,
-    from: labelPlainAddress(transfer.from, ownerAddress),
-    fromAddress: transfer.from,
-    to: labelPlainAddress(transfer.to, ownerAddress),
-    toAddress: transfer.to,
-    tokenContractAddress: transfer.contractAddress || undefined,
-    asset: symbol,
-    amount: trimAmount(formatUnits(BigInt(transfer.value), Number(transfer.tokenDecimal))),
-    risk: getTransferRisk(direction),
-    summary:
-      direction === 'sent'
-        ? `${symbol} left your wallet.`
-        : `${symbol} arrived in your wallet.`,
-    timestamp: timestampFromSeconds(transfer.timeStamp),
-  };
-}
-
-function normalizeEtherscanNativeTransaction(
-  transaction: EtherscanTransaction,
-  ownerAddress: string,
-  nativeSymbol: string,
-): NormalizedTransaction | undefined {
-  const value = BigInt(transaction.value);
-
-  if (value === 0n) {
-    return undefined;
-  }
-
-  const direction = getDirection(transaction.from, transaction.to, ownerAddress);
-
-  if (!direction) {
-    return undefined;
-  }
-
-  return {
-    id: transaction.hash,
-    type: direction,
-    from: labelPlainAddress(transaction.from, ownerAddress),
-    fromAddress: transaction.from,
-    to: labelPlainAddress(transaction.to, ownerAddress),
-    toAddress: transaction.to,
-    asset: nativeSymbol,
-    amount: trimAmount(formatEther(value)),
-    risk: getTransferRisk(direction),
-    summary:
-      direction === 'sent'
-        ? `${nativeSymbol} left your wallet.`
-        : `${nativeSymbol} arrived in your wallet.`,
-    timestamp: timestampFromSeconds(transaction.timeStamp),
-  };
-}
-
-function normalizeEtherscanApproval(
-  transaction: EtherscanTransaction,
-  ownerAddress: string,
-): NormalizedTransaction | undefined {
-  const isUnlimited = isUnlimitedEtherscanApproval(transaction.input);
-  const approvalKind = getApprovalKind(
-    transaction.functionName ?? transaction.input ?? transaction.methodId ?? '',
-    isUnlimited,
+  return applyAddressSecurity(
+    applyUsdPrices(applyTokenSecurity(sorted, securityMap), priceMap),
+    addressSecurityMap,
   );
-
-  if (!approvalKind || transaction.from.toLowerCase() !== ownerAddress.toLowerCase()) {
-    return undefined;
-  }
-
-  return {
-    id: transaction.hash,
-    type: 'approval',
-    from: labelPlainAddress(transaction.from, ownerAddress),
-    fromAddress: transaction.from,
-    to: labelPlainAddress(transaction.to, ownerAddress),
-    toAddress: transaction.to,
-    tokenContractAddress: transaction.to || undefined,
-    asset: approvalKind.asset,
-    amount: approvalKind.amount,
-    risk: approvalKind.risk,
-    summary: approvalKind.summary,
-    timestamp: timestampFromSeconds(transaction.timeStamp),
-  };
 }
 
 async function fetchBlockscoutList<T>(url: string) {
@@ -456,22 +241,40 @@ function normalizeBlockscoutApproval(
     return undefined;
   }
 
-  const toAddress = transaction.to?.hash ?? '';
+  const tokenContractAddress = transaction.to?.hash ?? '';
+  const spenderAddress = extractBlockscoutSpender(transaction.decoded_input?.parameters);
 
   return {
     id: transaction.hash,
     type: 'approval',
     from: labelAddress(transaction.from, ownerAddress),
     fromAddress,
-    to: labelAddress(transaction.to, ownerAddress),
-    toAddress,
-    tokenContractAddress: toAddress || undefined,
+    to: spenderAddress
+      ? labelPlainAddress(spenderAddress, ownerAddress)
+      : labelAddress(transaction.to, ownerAddress),
+    toAddress: spenderAddress ?? tokenContractAddress,
+    tokenContractAddress: tokenContractAddress || undefined,
+    spenderAddress,
     asset: approvalKind.asset,
     amount: approvalKind.amount,
     risk: approvalKind.risk,
     summary: approvalKind.summary,
     timestamp: transaction.timestamp ?? new Date().toISOString(),
   };
+}
+
+function extractBlockscoutSpender(
+  parameters?: Array<{ name?: string | null; type?: string | null; value?: string | null }> | null,
+): string | undefined {
+  if (!parameters) return undefined;
+
+  const named = parameters.find(
+    (p) => p.type === 'address' && (p.name === 'spender' || p.name === 'operator'),
+  );
+  if (named?.value) return named.value;
+
+  const fallback = parameters.find((p) => p.type === 'address' && p.name !== 'owner');
+  return fallback?.value ?? undefined;
 }
 
 const MAX_UINT256 = BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
@@ -487,14 +290,6 @@ function isUnlimitedBlockscoutApproval(
   } catch {
     return false;
   }
-}
-
-function isUnlimitedEtherscanApproval(input?: string): boolean {
-  if (!input || input.length < 138) return false;
-  const selector = input.slice(0, 10).toLowerCase();
-  // approve(address,uint256): 0x095ea7b3  increaseAllowance(address,uint256): 0x39509351
-  if (selector !== '0x095ea7b3' && selector !== '0x39509351') return false;
-  return input.slice(-64).toLowerCase() === 'f'.repeat(64);
 }
 
 function getApprovalKind(
@@ -752,6 +547,26 @@ function compactUnique(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
+function applyUsdPrices(
+  transactions: NormalizedTransaction[],
+  priceMap: Map<string, number>,
+): NormalizedTransaction[] {
+  if (priceMap.size === 0) return transactions;
+
+  return transactions.map((tx) => {
+    if (tx.type !== 'sent' && tx.type !== 'received') return tx;
+
+    const key = tx.tokenContractAddress?.toLowerCase() ?? tx.asset;
+    const price = priceMap.get(key);
+    if (price === undefined) return tx;
+
+    const amount = parseFloat(tx.amount.replace(/,/g, ''));
+    if (Number.isNaN(amount)) return tx;
+
+    return { ...tx, amountUsd: formatUsd(amount * price) };
+  });
+}
+
 function collectTokenAddresses(transactions: NormalizedTransaction[]): string[] {
   return [
     ...new Set(
@@ -817,5 +632,36 @@ function applyTokenSecurity(
     }
 
     return tx;
+  });
+}
+
+function collectSpenderAddresses(transactions: NormalizedTransaction[]): string[] {
+  return [
+    ...new Set(
+      transactions
+        .filter((tx) => tx.type === 'approval' && tx.spenderAddress)
+        .map((tx) => tx.spenderAddress!),
+    ),
+  ];
+}
+
+function applyAddressSecurity(
+  transactions: NormalizedTransaction[],
+  addressSecurityMap: Map<string, AddressSecurityFlags>,
+): NormalizedTransaction[] {
+  if (addressSecurityMap.size === 0) return transactions;
+
+  return transactions.map((tx) => {
+    if (tx.type !== 'approval' || !tx.spenderAddress) return tx;
+    const flags = addressSecurityMap.get(tx.spenderAddress.toLowerCase());
+    if (!flags?.isMalicious) return tx;
+
+    return {
+      ...tx,
+      risk: {
+        level: 'high' as const,
+        reason: `Spender address flagged: ${flags.reasons.join(', ')}.`,
+      },
+    };
   });
 }

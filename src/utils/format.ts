@@ -22,16 +22,6 @@ export function formatTimestamp(timestamp: string) {
   return `${year}-${month}-${day} ${hours}:${minutes} UTC`;
 }
 
-export function timestampFromSeconds(timestamp: string) {
-  const seconds = Number(timestamp);
-
-  if (Number.isNaN(seconds)) {
-    return new Date().toISOString();
-  }
-
-  return new Date(seconds * 1000).toISOString();
-}
-
 export function trimAmount(value: string) {
   const [integer, decimals] = value.split('.');
   const formattedInteger = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',');

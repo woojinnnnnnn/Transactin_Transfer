@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { ActivityControls } from './components/ActivityControls';
+import { RiskGuideModal } from './components/RiskGuideModal';
 import { StatusMessages } from './components/StatusMessages';
 import { SummaryStrip } from './components/SummaryStrip';
 import { TransactionList } from './components/TransactionList';
 import { WalletHeader } from './components/WalletHeader';
 import { getChainSymbol } from './constants/chains';
+import { useTheme } from './hooks/useTheme';
 import { useWalletActivity } from './hooks/useWalletActivity';
 import { useWalletConnection } from './hooks/useWalletConnection';
 
@@ -16,6 +18,8 @@ function App() {
     null,
   );
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
+  const [isRiskGuideOpen, setIsRiskGuideOpen] = useState(false);
+  const { theme, toggleTheme } = useTheme();
   const wallet = useWalletConnection();
   const {
     activityQuery,
@@ -63,7 +67,12 @@ function App() {
         isConnecting={wallet.isConnecting}
         onConnect={wallet.connectWallet}
         onDisconnect={() => wallet.disconnect()}
+        onOpenRiskGuide={() => setIsRiskGuideOpen(true)}
+        onToggleTheme={toggleTheme}
+        theme={theme}
       />
+
+      <RiskGuideModal isOpen={isRiskGuideOpen} onClose={() => setIsRiskGuideOpen(false)} />
 
       <StatusMessages
         activityError={activityQuery.error as Error | null}

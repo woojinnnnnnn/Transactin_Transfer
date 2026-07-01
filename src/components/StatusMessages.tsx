@@ -22,7 +22,7 @@ export function StatusMessages({
       {!hasInjectedConnector && (<p className="status status-error">No browser wallet extension was found.</p>)}
       {isActivityUnsupported && (<p className="status status-error">
           Transaction history is not supported on {chain?.name} yet. Switch to
-          Ethereum, Sepolia, Polygon, or Polygon Amoy.
+          Ethereum, Base, Arbitrum One, or Sepolia.
         </p>
       )}
       {activityError && (

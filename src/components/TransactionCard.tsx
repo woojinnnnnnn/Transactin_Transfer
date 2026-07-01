@@ -30,9 +30,30 @@ export function TransactionCard({
   const isCopied = copiedTransactionId === transaction.id;
   const typeMeta = getTypeMeta(transaction.type);
   const explorerUrl = getExplorerTransactionUrl(chain?.id, transaction.id);
+  const riskLevel = transaction.risk.level;
+  const showBanner = riskLevel === 'high' || riskLevel === 'medium';
+
+  const stripeClass =
+    riskLevel === 'high' ? 'card-stripe-danger' :
+    riskLevel === 'medium' ? 'card-stripe-warning' :
+    `card-stripe-${transaction.type}`;
+
+  const cardClass = [
+    'transaction-card',
+    stripeClass,
+    isExpanded ? 'transaction-card-expanded' : '',
+    riskLevel === 'high' ? 'transaction-card-risk-high' : '',
+    riskLevel === 'medium' ? 'transaction-card-risk-medium' : '',
+  ].filter(Boolean).join(' ');
 
   return (
-    <article className={isExpanded ? 'transaction-card transaction-card-expanded' : 'transaction-card'}>
+    <article className={cardClass}>
+      {showBanner && (
+        <div className={`risk-banner risk-banner-${riskLevel}`}>
+          <strong>{riskLevel === 'high' ? '⚠ Warning' : 'Notice'}</strong>
+          {transaction.risk.reason}
+        </div>
+      )}
       <button className="transaction-summary-button" type="button" onClick={() => onToggle(transaction.id)} aria-expanded={isExpanded}>
         <div className={`type-icon type-${typeMeta.tone}`}>{typeMeta.icon}</div>
         <div className="transaction-main">
@@ -57,14 +78,18 @@ export function TransactionCard({
         <div className={`amount-block amount-${typeMeta.tone}`}>
           <strong>{transaction.amount}</strong>
           <span className="asset-symbol">{transaction.asset}</span>
+          {transaction.amountUsd && (
+            <span className="amount-usd">{transaction.amountUsd}</span>
+          )}
         </div>
         <span className="expand-indicator">
-          {isExpanded ? 'Hide details' : 'Details'}
+          <span className={`expand-chevron${isExpanded ? ' expand-chevron-open' : ''}`}>›</span>
+          {isExpanded ? 'Hide' : 'Details'}
         </span>
       </button>
 
-      {isExpanded && (
-        <>
+      <div className={`card-expandable${isExpanded ? ' card-expandable-open' : ''}`}>
+        <div className="card-expandable-inner">
           <div className="transaction-details">
             <div className="detail-cell detail-cell-hash">
               <span>Transaction hash</span>
@@ -171,8 +196,8 @@ export function TransactionCard({
               <span>Explorer link unavailable</span>
             )}
           </div>
-        </>
-      )}
+        </div>
+      </div>
     </article>
   );
 }

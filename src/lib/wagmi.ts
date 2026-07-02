@@ -8,7 +8,6 @@ export const wagmiConfig = createConfig({
     injected({
       target: 'metaMask',
     }),
-    injected(),
   ],
   transports: {
     [mainnet.id]: http(),

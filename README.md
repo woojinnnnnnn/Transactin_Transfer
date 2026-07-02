@@ -4,10 +4,12 @@ A React + TypeScript MVP that translates raw wallet activity into a plain-langua
 "who moved what, where, and how risky it was" feed — instead of a raw list of
 transaction hashes and hex data.
 
-Connect a browser wallet (MetaMask or any injected provider) and it fetches your
-recent activity, groups multi-step transactions (like swaps) into a single
-readable entry, flags risky approvals, and shows a USD estimate next to each
-amount.
+Connect your MetaMask browser extension and it fetches your recent activity,
+groups multi-step transactions (like swaps) into a single readable entry,
+flags risky approvals, and shows a USD estimate next to each amount.
+
+**Wallet support:** MetaMask only. Other injected wallets (Rabby, Coinbase
+Wallet, etc.) are not supported yet.
 
 ## Screenshot
 

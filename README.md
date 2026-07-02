@@ -13,7 +13,7 @@ amount.
 
 ![Wallet activity translator showing sample transactions with risk warnings](docs/screenshot.png)
 
-<!-- TODO: demo GIF (connect wallet -> expand a card -> open the risk guide) not recorded yet. -->
+![Demo: connecting a wallet and viewing testnet activity](docs/demo.gif)
 
 ## Features
 

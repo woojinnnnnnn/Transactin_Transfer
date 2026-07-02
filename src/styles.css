@@ -860,8 +860,13 @@ h1 {
 
 .explorer-link {
   width: fit-content;
-  min-height: 28px;
+  /* Matches .movement-list p's 22px exactly — .transaction-actions aligns
+     both to flex-start, so equal heights are what make this link's text
+     land flush with the first row of a wrapped movement list instead of
+     centering against the whole (possibly multi-row) block. */
+  min-height: 22px;
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   border: 1.5px solid #e2e8f0;
   border-radius: 7px;
@@ -872,13 +877,14 @@ h1 {
   padding: 0 10px;
   text-decoration: none;
   transition: all 0.12s;
+  white-space: nowrap;
 }
 
 .explorer-link:hover { border-color: #94a3b8; color: #0f172a; }
 
 .transaction-actions {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   border-top: 1px solid #f1f5f9;

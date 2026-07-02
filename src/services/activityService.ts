@@ -915,9 +915,28 @@ function toMovement(transaction: NormalizedTransaction): TransactionMovement {
   };
 }
 
+// Sums per asset rather than listing every leg individually — a batch send
+// with 8 outgoing ETH transfers should read as one ETH total, not eight
+// concatenated numbers. Legs with a non-numeric amount (e.g. a bare contract
+// interaction's '—') are dropped from the sum; there's nothing to add.
 function summarizeMovementAmounts(transactions: NormalizedTransaction[]) {
-  return transactions
-    .map((transaction) => `${transaction.amount} ${transaction.asset}`)
+  const totalsByAsset = new Map<string, number>();
+
+  for (const transaction of transactions) {
+    const numericAmount = Number(transaction.amount.replace(/,/g, ''));
+
+    if (Number.isNaN(numericAmount)) {
+      continue;
+    }
+
+    totalsByAsset.set(
+      transaction.asset,
+      (totalsByAsset.get(transaction.asset) ?? 0) + numericAmount,
+    );
+  }
+
+  return Array.from(totalsByAsset.entries())
+    .map(([asset, total]) => `${trimAmount(String(total))} ${asset}`)
     .join(' + ');
 }
 

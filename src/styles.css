@@ -512,6 +512,24 @@ h1 {
 .risk-high    { background: #fff1f2; color: #ef4444; }
 .risk-unknown { background: #f8fafc; color: #94a3b8; }
 
+.risk-check-incomplete-pill {
+  min-height: 18px;
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border: 1px dashed #cbd5e1;
+  border-radius: 999px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 0 7px;
+  text-transform: uppercase;
+}
+
+.risk-check-incomplete-text { color: #94a3b8; font-weight: 600; }
+
 .transaction-topline code {
   border-radius: 4px;
   background: #f8fafc;
@@ -1053,6 +1071,19 @@ h1 {
 
 .risk-guide-section li + li { margin-top: 4px; }
 
+.risk-guide-footnote {
+  margin: 16px 0 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.risk-guide-footnote .risk-check-incomplete-pill {
+  font-size: 9px;
+  margin: 0 2px;
+  vertical-align: middle;
+}
+
 /* ── Responsive ──────────────────────────────────────────── */
 
 @media (max-width: 760px) {
@@ -1115,6 +1146,7 @@ h1 {
 [data-theme="dark"] .risk-guide-close { color: #64748b; }
 [data-theme="dark"] .risk-guide-close:hover { background: rgba(255, 255, 255, 0.06); }
 [data-theme="dark"] .risk-guide-intro { color: #64748b; }
+[data-theme="dark"] .risk-guide-footnote { color: #475569; }
 [data-theme="dark"] .risk-guide-section { border-color: rgba(255, 255, 255, 0.08); }
 [data-theme="dark"] .risk-guide-section-head p { color: #cbd5e1; }
 [data-theme="dark"] .risk-guide-section ul { color: #64748b; }
@@ -1293,6 +1325,8 @@ h1 {
 [data-theme="dark"] .risk-medium  { background: rgba(245, 158, 11, 0.12); color: #fbbf24; }
 [data-theme="dark"] .risk-high    { background: rgba(239, 68, 68, 0.12); color: #f87171; }
 [data-theme="dark"] .risk-unknown { background: rgba(148, 163, 184, 0.08); color: #64748b; }
+[data-theme="dark"] .risk-check-incomplete-pill { border-color: rgba(148, 163, 184, 0.25); color: #64748b; }
+[data-theme="dark"] .risk-check-incomplete-text { color: #64748b; }
 
 /* Transaction topline & body */
 [data-theme="dark"] .transaction-topline code {

@@ -1,8 +1,12 @@
+import { TtlCache } from '../utils/ttlCache';
+
 const GOPLUS_SUPPORTED_CHAINS: Record<number, string> = {
   1: '1',
   8453: '8453',
   42161: '42161',
 };
+
+const SECURITY_CACHE_TTL_MS = 15 * 60_000;
 
 type GoPlusTokenFlags = {
   is_honeypot?: string;
@@ -52,6 +56,29 @@ export type AddressSecurityFlags = {
   reasons: string[];
 };
 
+export type SecurityLookupResult<T> = {
+  flags: Map<string, T>;
+  /**
+   * Addresses that were actually queried but didn't get a confirmed answer
+   * (network error, timeout, non-1 response code) — distinct from addresses
+   * that were never queried at all (e.g. GoPlus doesn't cover this chain).
+   * Lets callers show "risk check incomplete" instead of implying "checked,
+   * no issues found."
+   */
+  failedAddresses: Set<string>;
+};
+
+const addressSecurityCache = new TtlCache<AddressSecurityFlags>(SECURITY_CACHE_TTL_MS);
+const tokenSecurityCache = new TtlCache<TokenSecurityFlags>(SECURITY_CACHE_TTL_MS);
+
+const CLEAN_TOKEN_FLAGS: TokenSecurityFlags = {
+  isHoneypot: false,
+  isBlacklisted: false,
+  cannotSell: false,
+  hasHighTax: false,
+  isClosedSource: false,
+};
+
 const ADDRESS_SECURITY_LABELS: Record<keyof GoPlusAddressSecurityFlags, string> = {
   cybercrime: 'linked to cybercrime',
   money_laundering: 'linked to money laundering',
@@ -75,16 +102,27 @@ const ADDRESS_SECURITY_LABELS: Record<keyof GoPlusAddressSecurityFlags, string> 
  */
 export async function fetchAddressSecurity(
   addresses: string[],
-): Promise<Map<string, AddressSecurityFlags>> {
+): Promise<SecurityLookupResult<AddressSecurityFlags>> {
   const uniqueAddresses = [...new Set(addresses.map((a) => a.toLowerCase()))];
-  const result = new Map<string, AddressSecurityFlags>();
+  const flags = new Map<string, AddressSecurityFlags>();
+  const failedAddresses = new Set<string>();
 
   if (uniqueAddresses.length === 0) {
-    return result;
+    return { flags, failedAddresses };
+  }
+
+  const uncachedAddresses: string[] = [];
+  for (const address of uniqueAddresses) {
+    const cached = addressSecurityCache.get(address);
+    if (cached) {
+      flags.set(address, cached);
+    } else {
+      uncachedAddresses.push(address);
+    }
   }
 
   await Promise.all(
-    uniqueAddresses.map(async (address) => {
+    uncachedAddresses.map(async (address) => {
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), 4000);
 
@@ -94,10 +132,16 @@ export async function fetchAddressSecurity(
           { signal: controller.signal },
         );
 
-        if (!response.ok) return;
+        if (!response.ok) {
+          failedAddresses.add(address);
+          return;
+        }
 
         const data = (await response.json()) as GoPlusAddressSecurityResponse;
-        if (data.code !== 1 || !data.result) return;
+        if (data.code !== 1 || !data.result) {
+          failedAddresses.add(address);
+          return;
+        }
 
         const reasons = (
           Object.keys(ADDRESS_SECURITY_LABELS) as Array<keyof GoPlusAddressSecurityFlags>
@@ -105,63 +149,104 @@ export async function fetchAddressSecurity(
           .filter((key) => data.result?.[key] === '1')
           .map((key) => ADDRESS_SECURITY_LABELS[key]);
 
-        if (reasons.length > 0) {
-          result.set(address, { isMalicious: true, reasons });
-        }
+        // Cache the confirmed outcome either way (clean or malicious) so a
+        // repeat lookup for this address doesn't re-hit GoPlus within the TTL.
+        const resolved: AddressSecurityFlags = { isMalicious: reasons.length > 0, reasons };
+        addressSecurityCache.set(address, resolved);
+        flags.set(address, resolved);
       } catch {
-        // ignore — leave address unflagged on error/timeout
+        // timeout/network error — don't cache it, so it's retried on the
+        // next fetch instead of being stuck "unknown" for the full TTL
+        failedAddresses.add(address);
       } finally {
         window.clearTimeout(timeoutId);
       }
     }),
   );
 
-  return result;
+  return { flags, failedAddresses };
 }
 
 export async function fetchTokenSecurity(
   chainId: number,
   contractAddresses: string[],
-): Promise<Map<string, TokenSecurityFlags>> {
+): Promise<SecurityLookupResult<TokenSecurityFlags>> {
   const goplusChainId = GOPLUS_SUPPORTED_CHAINS[chainId];
+  const flags = new Map<string, TokenSecurityFlags>();
+  const failedAddresses = new Set<string>();
 
   if (!goplusChainId || contractAddresses.length === 0) {
-    return new Map();
+    return { flags, failedAddresses };
+  }
+
+  const uniqueAddresses = [...new Set(contractAddresses.map((a) => a.toLowerCase()))];
+  const uncachedAddresses: string[] = [];
+
+  for (const address of uniqueAddresses) {
+    const cached = tokenSecurityCache.get(`${goplusChainId}:${address}`);
+    if (cached) {
+      flags.set(address, cached);
+    } else {
+      uncachedAddresses.push(address);
+    }
+  }
+
+  if (uncachedAddresses.length === 0) {
+    return { flags, failedAddresses };
   }
 
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), 4000);
 
   try {
-    const addresses = contractAddresses.map((a) => a.toLowerCase()).join(',');
     const response = await fetch(
-      `https://api.gopluslabs.io/api/v1/token_security/${goplusChainId}?contract_addresses=${addresses}`,
+      `https://api.gopluslabs.io/api/v1/token_security/${goplusChainId}?contract_addresses=${uncachedAddresses.join(',')}`,
       { signal: controller.signal },
     );
 
-    if (!response.ok) return new Map();
+    if (!response.ok) {
+      uncachedAddresses.forEach((address) => failedAddresses.add(address));
+      return { flags, failedAddresses };
+    }
 
     const data = (await response.json()) as GoPlusResponse;
 
-    if (data.code !== 1 || !data.result) return new Map();
-
-    const result = new Map<string, TokenSecurityFlags>();
-
-    for (const [address, flags] of Object.entries(data.result)) {
-      result.set(address.toLowerCase(), {
-        isHoneypot: flags.is_honeypot === '1',
-        isBlacklisted: flags.is_blacklisted === '1',
-        cannotSell: flags.cannot_sell_all === '1',
-        hasHighTax:
-          Number(flags.sell_tax ?? '0') > 0.1 ||
-          Number(flags.buy_tax ?? '0') > 0.1,
-        isClosedSource: flags.is_open_source === '0',
-      });
+    if (data.code !== 1 || !data.result) {
+      uncachedAddresses.forEach((address) => failedAddresses.add(address));
+      return { flags, failedAddresses };
     }
 
-    return result;
+    const flagsByAddress = new Map<string, GoPlusTokenFlags>();
+    for (const [address, rawFlags] of Object.entries(data.result)) {
+      flagsByAddress.set(address.toLowerCase(), rawFlags);
+    }
+
+    // Cache every address we just checked, including ones GoPlus had no
+    // flags for — that's a confirmed "clean" result, not "unknown," so it
+    // shouldn't be re-queried again within the TTL either.
+    for (const address of uncachedAddresses) {
+      const rawFlags = flagsByAddress.get(address);
+      const parsed: TokenSecurityFlags = rawFlags
+        ? {
+            isHoneypot: rawFlags.is_honeypot === '1',
+            isBlacklisted: rawFlags.is_blacklisted === '1',
+            cannotSell: rawFlags.cannot_sell_all === '1',
+            hasHighTax:
+              Number(rawFlags.sell_tax ?? '0') > 0.1 ||
+              Number(rawFlags.buy_tax ?? '0') > 0.1,
+            isClosedSource: rawFlags.is_open_source === '0',
+          }
+        : CLEAN_TOKEN_FLAGS;
+
+      tokenSecurityCache.set(`${goplusChainId}:${address}`, parsed);
+      flags.set(address, parsed);
+    }
+
+    return { flags, failedAddresses };
   } catch {
-    return new Map();
+    // timeout/network error — don't cache, so these get retried next fetch
+    uncachedAddresses.forEach((address) => failedAddresses.add(address));
+    return { flags, failedAddresses };
   } finally {
     window.clearTimeout(timeoutId);
   }

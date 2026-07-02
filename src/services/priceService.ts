@@ -1,4 +1,8 @@
 import type { NormalizedTransaction } from '../types/activity';
+import { TtlCache } from '../utils/ttlCache';
+
+const PRICE_CACHE_TTL_MS = 5 * 60_000;
+const priceCache = new TtlCache<number>(PRICE_CACHE_TTL_MS);
 
 const CHAIN_PLATFORM_IDS: Record<number, string> = {
   1: 'ethereum',
@@ -43,10 +47,30 @@ export async function fetchUsdPrices(
     }
   }
 
+  const uncachedNativeSymbols = new Set<string>();
+  for (const symbol of nativeSymbols) {
+    const cached = priceCache.get(`native:${NATIVE_SYMBOL_TO_COINGECKO_ID[symbol]}`);
+    if (cached !== undefined) {
+      priceMap.set(symbol, cached);
+    } else {
+      uncachedNativeSymbols.add(symbol);
+    }
+  }
+
+  const uncachedContractAddresses = new Set<string>();
+  for (const address of contractAddresses) {
+    const cached = priceCache.get(`token:${platformId}:${address}`);
+    if (cached !== undefined) {
+      priceMap.set(address, cached);
+    } else {
+      uncachedContractAddresses.add(address);
+    }
+  }
+
   const fetches: Promise<void>[] = [];
 
-  if (nativeSymbols.size > 0) {
-    const ids = [...nativeSymbols]
+  if (uncachedNativeSymbols.size > 0) {
+    const ids = [...uncachedNativeSymbols]
       .map((s) => NATIVE_SYMBOL_TO_COINGECKO_ID[s])
       .join(',');
 
@@ -57,17 +81,21 @@ export async function fetchUsdPrices(
         .then(async (res) => {
           if (!res.ok) return;
           const data = (await res.json()) as Record<string, { usd?: number }>;
-          for (const symbol of nativeSymbols) {
-            const price = data[NATIVE_SYMBOL_TO_COINGECKO_ID[symbol]]?.usd;
-            if (price !== undefined) priceMap.set(symbol, price);
+          for (const symbol of uncachedNativeSymbols) {
+            const coingeckoId = NATIVE_SYMBOL_TO_COINGECKO_ID[symbol];
+            const price = data[coingeckoId]?.usd;
+            if (price !== undefined) {
+              priceMap.set(symbol, price);
+              priceCache.set(`native:${coingeckoId}`, price);
+            }
           }
         })
         .catch(() => {}),
     );
   }
 
-  if (platformId && contractAddresses.size > 0) {
-    const addresses = [...contractAddresses].join(',');
+  if (platformId && uncachedContractAddresses.size > 0) {
+    const addresses = [...uncachedContractAddresses].join(',');
     fetches.push(
       fetchWithTimeout(
         `https://api.coingecko.com/api/v3/simple/token_price/${platformId}?contract_addresses=${addresses}&vs_currencies=usd`,
@@ -77,7 +105,9 @@ export async function fetchUsdPrices(
           const data = (await res.json()) as Record<string, { usd?: number }>;
           for (const [address, prices] of Object.entries(data)) {
             if (prices.usd !== undefined) {
-              priceMap.set(address.toLowerCase(), prices.usd);
+              const lowerAddress = address.toLowerCase();
+              priceMap.set(lowerAddress, prices.usd);
+              priceCache.set(`token:${platformId}:${lowerAddress}`, prices.usd);
             }
           }
         })

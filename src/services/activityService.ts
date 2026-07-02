@@ -18,6 +18,7 @@ type BlockscoutAddress = {
   ens_domain_name?: string | null;
   hash?: string;
   name?: string | null;
+  is_scam?: boolean | null;
 };
 
 type BlockscoutTokenTransfer = {
@@ -123,21 +124,42 @@ export async function fetchAddressActivity(address: string, chainId: number) {
   const normalizedApprovals = transactions
     .map((transaction) => normalizeBlockscoutApproval(transaction, address))
     .filter((transaction): transaction is NormalizedTransaction => Boolean(transaction));
+  const normalizedContractInteractions = transactions
+    .map((transaction) => normalizeContractInteraction(transaction, address))
+    .filter((transaction): transaction is NormalizedTransaction => Boolean(transaction));
 
   const sorted = groupTransactions([
     ...normalizedApprovals,
     ...normalizedTokenTransfers,
     ...normalizedNativeTransfers,
+    ...normalizedContractInteractions,
   ]).sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
 
-  const [securityMap, priceMap, addressSecurityMap] = await Promise.all([
+  const sentTokenTransferHashes = [
+    ...new Set(
+      normalizedTokenTransfers
+        .filter((tx) => tx.type === 'sent' && tx.tokenContractAddress)
+        .map((tx) => tx.id),
+    ),
+  ];
+
+  const [tokenSecurity, priceMap, addressSecurity, executedByOtherHashes] = await Promise.all([
     fetchTokenSecurity(chainId, collectTokenAddresses(sorted)),
     fetchUsdPrices(chainId, sorted),
     fetchAddressSecurity(collectSpenderAddresses(sorted)),
+    detectExecutedByOthers(chainConfig.apiBaseUrl, sentTokenTransferHashes, address),
   ]);
-  return applyAddressSecurity(
-    applyUsdPrices(applyTokenSecurity(sorted, securityMap), priceMap),
-    addressSecurityMap,
+
+  return applyExecutorRisk(
+    applyAddressSecurity(
+      applyUsdPrices(
+        applyTokenSecurity(sorted, tokenSecurity.flags, tokenSecurity.failedAddresses),
+        priceMap,
+      ),
+      addressSecurity.flags,
+      addressSecurity.failedAddresses,
+    ),
+    executedByOtherHashes,
   );
 }
 
@@ -150,6 +172,90 @@ async function fetchBlockscoutList<T>(url: string) {
 
   const data = (await response.json()) as BlockscoutListResponse<T>;
   return data.items ?? [];
+}
+
+// A transaction's signer never changes once mined, so this cache never
+// expires — unlike prices or security flags, there's no "stale" case.
+const transactionSenderCache = new Map<string, string>();
+
+async function fetchTransactionSender(
+  apiBaseUrl: string,
+  hash: string,
+): Promise<string | undefined> {
+  const cached = transactionSenderCache.get(hash);
+  if (cached) {
+    return cached;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 4000);
+
+  try {
+    const response = await fetch(`${apiBaseUrl}/transactions/${hash}`, {
+      signal: controller.signal,
+    });
+
+    if (!response.ok) return undefined;
+
+    const data = (await response.json()) as { from?: BlockscoutAddress };
+    const sender = data.from?.hash;
+
+    if (sender) {
+      transactionSenderCache.set(hash, sender);
+    }
+
+    return sender;
+  } catch {
+    return undefined;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * A "sent" token transfer's from/to describe whose balance moved, not who
+ * signed the transaction — a spender using an earlier approval to call
+ * transferFrom looks identical to a self-initiated send unless we check who
+ * actually executed it. Flags hashes where the real signer isn't the wallet
+ * owner, so applyExecutorRisk can surface that instead of "standard transfer."
+ */
+async function detectExecutedByOthers(
+  apiBaseUrl: string,
+  hashes: string[],
+  ownerAddress: string,
+): Promise<Set<string>> {
+  const flagged = new Set<string>();
+
+  await Promise.all(
+    hashes.map(async (hash) => {
+      const sender = await fetchTransactionSender(apiBaseUrl, hash);
+      if (sender && sender.toLowerCase() !== ownerAddress.toLowerCase()) {
+        flagged.add(hash);
+      }
+    }),
+  );
+
+  return flagged;
+}
+
+function applyExecutorRisk(
+  transactions: NormalizedTransaction[],
+  executedByOtherHashes: Set<string>,
+): NormalizedTransaction[] {
+  if (executedByOtherHashes.size === 0) return transactions;
+
+  return transactions.map((tx) => {
+    if (tx.type !== 'sent' || !executedByOtherHashes.has(tx.id)) return tx;
+
+    return {
+      ...tx,
+      risk: {
+        level: 'high' as const,
+        reason:
+          'This transfer was executed by another address, not you — likely using an approval you granted earlier.',
+      },
+    };
+  });
 }
 
 function normalizeTokenTransfer(
@@ -170,6 +276,7 @@ function normalizeTokenTransfer(
   const to = labelAddress(transfer.to, ownerAddress);
   const fromAddress = transfer.from?.hash ?? '';
   const toAddress = transfer.to?.hash ?? '';
+  const counterparty = direction === 'sent' ? transfer.to : transfer.from;
 
   return {
     id: transfer.transaction_hash,
@@ -181,7 +288,7 @@ function normalizeTokenTransfer(
     tokenContractAddress: transfer.token?.address ?? undefined,
     asset: symbol,
     amount,
-    risk: getTransferRisk(direction),
+    risk: getScamOverride(counterparty) ?? getTransferRisk(direction),
     summary:
       direction === 'sent'
         ? `${symbol} left your wallet.`
@@ -209,6 +316,8 @@ function normalizeNativeTransaction(
     return undefined;
   }
 
+  const counterparty = direction === 'sent' ? transaction.to : transaction.from;
+
   return {
     id: transaction.hash,
     type: direction,
@@ -218,11 +327,55 @@ function normalizeNativeTransaction(
     toAddress: transaction.to?.hash ?? '',
     asset: nativeSymbol,
     amount: trimAmount(formatEther(value)),
-    risk: getTransferRisk(direction),
+    risk: getScamOverride(counterparty) ?? getTransferRisk(direction),
     summary:
       direction === 'sent'
         ? `${nativeSymbol} left your wallet.`
         : `${nativeSymbol} arrived in your wallet.`,
+    timestamp: transaction.timestamp ?? new Date().toISOString(),
+  };
+}
+
+function normalizeContractInteraction(
+  transaction: BlockscoutTransaction,
+  ownerAddress: string,
+): NormalizedTransaction | undefined {
+  const value = BigInt(transaction.value ?? '0');
+
+  if (value !== 0n) {
+    // Non-zero native transfers are handled by normalizeNativeTransaction.
+    return undefined;
+  }
+
+  const fromHash = transaction.from?.hash ?? '';
+  const toHash = transaction.to?.hash ?? '';
+
+  if (fromHash.toLowerCase() !== ownerAddress.toLowerCase()) {
+    return undefined;
+  }
+
+  if (!toHash || toHash.toLowerCase() === ownerAddress.toLowerCase()) {
+    return undefined;
+  }
+
+  const scamOverride = getScamOverride(transaction.to);
+
+  return {
+    id: transaction.hash,
+    type: 'contract',
+    from: labelAddress(transaction.from, ownerAddress),
+    fromAddress: fromHash,
+    to: labelAddress(transaction.to, ownerAddress),
+    toAddress: toHash,
+    asset: 'Contract',
+    amount: '—',
+    risk: scamOverride ?? {
+      level: 'unknown',
+      reason: 'Contract interaction without enough context.',
+    },
+    summary: scamOverride
+      ? 'You interacted with a contract flagged as a scam.'
+      : 'You interacted with a contract — no token movement detected.',
     timestamp: transaction.timestamp ?? new Date().toISOString(),
   };
 }
@@ -362,6 +515,19 @@ function getApprovalKind(
   }
 
   return undefined;
+}
+
+function getScamOverride(
+  counterparty: BlockscoutAddress | null | undefined,
+): TransactionRisk | undefined {
+  if (counterparty?.is_scam !== true) {
+    return undefined;
+  }
+
+  return {
+    level: 'high',
+    reason: 'This address is flagged as a scam by Blockscout.',
+  };
 }
 
 function getTransferRisk(direction: 'sent' | 'received' | 'contract') {
@@ -580,12 +746,19 @@ function collectTokenAddresses(transactions: NormalizedTransaction[]): string[] 
 function applyTokenSecurity(
   transactions: NormalizedTransaction[],
   securityMap: Map<string, TokenSecurityFlags>,
+  failedAddresses: Set<string>,
 ): NormalizedTransaction[] {
-  if (securityMap.size === 0) return transactions;
+  if (securityMap.size === 0 && failedAddresses.size === 0) return transactions;
 
   return transactions.map((tx) => {
     if (!tx.tokenContractAddress) return tx;
-    const flags = securityMap.get(tx.tokenContractAddress.toLowerCase());
+    const address = tx.tokenContractAddress.toLowerCase();
+
+    if (failedAddresses.has(address)) {
+      return { ...tx, riskCheckIncomplete: true };
+    }
+
+    const flags = securityMap.get(address);
     if (!flags) return tx;
 
     if (flags.isHoneypot) {
@@ -648,12 +821,19 @@ function collectSpenderAddresses(transactions: NormalizedTransaction[]): string[
 function applyAddressSecurity(
   transactions: NormalizedTransaction[],
   addressSecurityMap: Map<string, AddressSecurityFlags>,
+  failedAddresses: Set<string>,
 ): NormalizedTransaction[] {
-  if (addressSecurityMap.size === 0) return transactions;
+  if (addressSecurityMap.size === 0 && failedAddresses.size === 0) return transactions;
 
   return transactions.map((tx) => {
     if (tx.type !== 'approval' || !tx.spenderAddress) return tx;
-    const flags = addressSecurityMap.get(tx.spenderAddress.toLowerCase());
+    const address = tx.spenderAddress.toLowerCase();
+
+    if (failedAddresses.has(address)) {
+      return { ...tx, riskCheckIncomplete: true };
+    }
+
+    const flags = addressSecurityMap.get(address);
     if (!flags?.isMalicious) return tx;
 
     return {

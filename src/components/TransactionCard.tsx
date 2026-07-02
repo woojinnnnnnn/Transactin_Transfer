@@ -64,6 +64,14 @@ export function TransactionCard({
             <span className={`risk-pill risk-${transaction.risk.level}`}>
               {transaction.risk.level} risk
             </span>
+            {transaction.riskCheckIncomplete && (
+              <span
+                className="risk-check-incomplete-pill"
+                title="The security check for this transaction didn't complete (timeout or rate limit) — this risk level may be outdated."
+              >
+                check incomplete
+              </span>
+            )}
             <span>{formatTimestamp(transaction.timestamp)}</span>
             <code>{shortenAddress(transaction.id)}</code>
           </div>
@@ -168,6 +176,14 @@ export function TransactionCard({
               <span>Risk reason</span>
               <strong>{transaction.risk.reason}</strong>
             </div>
+            {transaction.riskCheckIncomplete && (
+              <div>
+                <span>Risk check</span>
+                <strong className="risk-check-incomplete-text">
+                  Incomplete — didn't finish in time, may be outdated
+                </strong>
+              </div>
+            )}
           </div>
           <div className="transaction-actions">
             {transaction.movements && transaction.movements.length > 1 && (

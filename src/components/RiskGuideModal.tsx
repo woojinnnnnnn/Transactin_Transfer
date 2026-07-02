@@ -39,6 +39,8 @@ const riskGuideSections: Array<{
       'A token address flagged as blacklisted.',
       'Transfer restrictions detected on the token — selling may be blocked.',
       'The spender address itself is flagged as malicious.',
+      'The counterparty address is flagged as a scam by Blockscout.',
+      "A transfer that left your wallet but was executed by another address, not you — likely using an approval you granted earlier.",
     ],
   },
   {
@@ -46,7 +48,8 @@ const riskGuideSections: Array<{
     label: 'Unknown risk',
     description: "Not enough context to classify confidently — check the transaction yourself.",
     triggers: [
-      'A contract interaction where the wallet is both sender and receiver, or the method is unrecognized.',
+      'A contract interaction with no token or ETH movement attached (e.g. a claim/mint/custom function call).',
+      'A contract interaction where the wallet is both sender and receiver.',
       "Multiple token movements grouped into one transaction that don't resolve into a single swap.",
     ],
   },
@@ -112,6 +115,12 @@ export function RiskGuideModal({
             </div>
           ))}
         </div>
+        <p className="risk-guide-footnote">
+          A dashed <span className="risk-check-incomplete-pill">check incomplete</span> tag
+          means the third-party security check for that transaction didn't finish (timeout or
+          rate limit) — it isn't the same as "checked, no issues found." Treat those as
+          unverified, not safe.
+        </p>
       </div>
     </div>
   );

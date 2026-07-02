@@ -16,6 +16,7 @@ export type NormalizedTransaction = {
   spenderAddress?: string;
   amountUsd?: string;
   movements?: TransactionMovement[];
+  riskCheckIncomplete?: boolean;
 };
 
 export type TransactionRisk = {

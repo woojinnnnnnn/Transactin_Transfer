@@ -17,7 +17,7 @@ export function getActionLabel(transaction: NormalizedTransaction) {
     return `Swapped ${transaction.asset}`;
   }
 
-  return `Used ${transaction.asset}`;
+  return 'Contract interaction';
 }
 
 export function getTypeMeta(type: TransactionType) {

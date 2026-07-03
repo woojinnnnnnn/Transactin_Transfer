@@ -22,7 +22,7 @@ Wallet, etc.) are not supported yet.
 
 ![Demo: connecting a wallet and viewing live mainnet activity](docs/live_demo_v2.gif)
 
-![Demo: looking up any address without connecting a wallet](docs/serach_demo.gif)
+![Demo: looking up any address without connecting a wallet](docs/search_demo.gif)
 
 ## Features
 
